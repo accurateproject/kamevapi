@@ -12,6 +12,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 )
@@ -37,10 +38,12 @@ var callEnd = `248:{"event":"CGR_CALL_END",
   "callid":"fcab096696848e58191ed79fdd732751@0:0:0:0:0:0:0:0",
   "from_tag":"4c759c18",
   "cgr_reqtype":"postpaid",
-  "cgr_account":"1001", 
+  "cgr_account":"1001",
   "cgr_destination":"1002",
   "cgr_answertime":"1420142016",
   "cgr_duration":"6"},`
+
+var kea *KamEvapi
 
 func TestDispatchEvent(t *testing.T) {
 	r, w, err := os.Pipe()
@@ -50,8 +53,9 @@ func TestDispatchEvent(t *testing.T) {
 	kea = &KamEvapi{}
 	kea.rcvBuffer = bufio.NewReader(r)
 	var events []string
+	var mux sync.Mutex
 	kea.eventHandlers = map[*regexp.Regexp][]func([]byte, string){
-		regexp.MustCompile(".*"): []func([]byte, string){func(ev []byte, ignr string) { events = append(events, string(ev)) }},
+		regexp.MustCompile(".*"): []func([]byte, string){func(ev []byte, ignr string) { mux.Lock(); defer mux.Unlock(); events = append(events, string(ev)) }},
 	}
 	go kea.readEvents(make(chan struct{}), make(chan error))
 	w.WriteString(authRequest)
@@ -73,17 +77,11 @@ func TestDispatchEvent(t *testing.T) {
   "cgr_reqtype":"postpaid",
   "cgr_account":"1001",
   "cgr_destination":"1002",
-  "cgr_answertime":"1420142016"}`, `{"event":"CGR_CALL_END",
-  "callid":"fcab096696848e58191ed79fdd732751@0:0:0:0:0:0:0:0",
-  "from_tag":"4c759c18",
-  "cgr_reqtype":"postpaid",
-  "cgr_account":"1001", 
-  "cgr_destination":"1002",
-  "cgr_answertime":"1420142016",
-  "cgr_duration":"6"}`,
+  "cgr_answertime":"1420142016"}`,
 	}
+	mux.Lock()
 	if !reflect.DeepEqual(expectEvents, events) {
 		t.Errorf("Received events: %+v", events)
 	}
-
+	mux.Unlock()
 }
